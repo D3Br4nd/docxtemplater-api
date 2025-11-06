@@ -8,7 +8,7 @@ const CHECKBOX_CHECKED_XML = '<w:sdt><w:sdtPr><w:id w:val="-733150215"/><w14:che
 const CHECKBOX_UNCHECKED_XML = '<w:sdt><w:sdtPr><w:id w:val="-990252438"/><w14:checkbox><w14:checked w14:val="0"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:rPr><w:rFonts w:ascii="MS Gothic" w:eastAsia="MS Gothic" w:hAnsi="MS Gothic" w:hint="eastAsia"/></w:rPr><w:t>☐</w:t></w:r></w:sdtContent></w:sdt>';
 
 const app = express();
-const PORT = 8080;
+const PORT = process.env.PORT || 8080;
 
 // Abilita il middleware per l'upload di file
 app.use(fileUpload());

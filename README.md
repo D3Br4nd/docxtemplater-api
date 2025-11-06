@@ -37,6 +37,22 @@ docxtemplater-api/
 
 Il servizio sarà in ascolto sulla porta `8080`.
 
+## Build e Run con Docker Compose
+
+Il file `docker-compose.yml` è configurato per avviare il servizio e connetterlo a una rete esterna (es. `debrand_network` per un proxy manager) senza esporre porte pubblicamente.
+
+1.  **Assicurati che la rete esterna esista:**
+
+    ```bash
+    docker network create debrand_network
+    ```
+
+2.  **Avvia il servizio:**
+
+    ```bash
+    docker-compose up -d
+    ```
+
 ## Sviluppo Locale
 
 1.  **Installa le dipendenze:**

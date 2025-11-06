@@ -1,0 +1,13 @@
+services:
+  docxtemplater-api:
+    build: .
+    container_name: docxtemplater-api-service
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+    networks:
+      - debrand_network
+
+networks:
+  debrand_network:
+    external: true
