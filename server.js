@@ -1,85 +1,106 @@
-const express = require('express');
-const fileUpload = require('express-fileupload');
-const PizZip = require('pizzip');
-const Docxtemplater = require('docxtemplater');
+// server.js
+"use strict";
 
-// Definizioni OpenXML per le Checkbox (come da Sezione 2)
-const CHECKBOX_CHECKED_XML = '<w:sdt><w:sdtPr><w:id w:val="-733150215"/><w14:checkbox><w14:checked w14:val="1"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:rPr><w:rFonts w:ascii="MS Gothic" w:eastAsia="MS Gothic" w:hAnsi="MS Gothic" w:hint="eastAsia"/></w:rPr><w:t>☒</w:t></w:r></w:sdtContent></w:sdt>';
-const CHECKBOX_UNCHECKED_XML = '<w:sdt><w:sdtPr><w:id w:val="-990252438"/><w14:checkbox><w14:checked w14:val="0"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/></w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:rPr><w:rFonts w:ascii="MS Gothic" w:eastAsia="MS Gothic" w:hAnsi="MS Gothic" w:hint="eastAsia"/></w:rPr><w:t>☐</w:t></w:r></w:sdtContent></w:sdt>';
+const express = require("express");
+const fileUpload = require("express-fileupload");
+const PizZip = require("pizzip");
+const Docxtemplater = require("docxtemplater");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Abilita il middleware per l'upload di file
-app.use(fileUpload());
+// Se stai dietro a un reverse proxy (nginx/traefik), abilita trust proxy
+app.set("trust proxy", true);
 
-/**
- * Endpoint API per la generazione di DOCX.
- * Si aspetta un body 'multipart/form-data' con due campi:
- * 1. 'template': Il file template.docx
- * 2. 'data': Una stringa JSON con i dati di rendering
- */
-app.post('/generate/docx', (req, res) => {
-    
-    if (!req.files ||!req.files.template ||!req.body.data) {
-        return res.status(400).send("Richiesta non valida. 'template' (file) e 'data' (JSON string) sono richiesti.");
-    }
+// Solo multipart: niente bodyParser json/urlencoded qui
+app.use(
+  fileUpload({
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    abortOnLimit: true,
+    useTempFiles: false,
+    preserveExtension: true,
+  })
+);
 
+// Health & root
+app.get("/", (_req, res) => res.status(200).send("Docxtemplater API running"));
+app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
+
+// Endpoint accetta /generate/docx e /generate/docx/
+app.post(["/generate/docx", "/generate/docx/"], async (req, res) => {
+  // Validazione minima
+  if (!req.files || !req.files.template) {
+    return res.status(400).send("Richiesta non valida: campo file 'template' mancante.");
+  }
+  if (!req.body || typeof req.body.data !== "string") {
+    return res.status(400).send("Richiesta non valida: campo testo 'data' (JSON string) mancante.");
+  }
+
+  try {
+    // 1) Leggi input
+    const templateBuffer = req.files.template.data;
+
+    let inputData;
     try {
-        const templateBuffer = req.files.template.data;
-        const inputData = JSON.parse(req.body.data);
-
-        // --- Logica di Trasformazione Dati ---
-        // Clona l'oggetto dati per evitare side-effect
-        const transformedData = {...inputData };
-        
-        // Trasforma i booleani in XML per le checkbox
-        // Esempio: Se il JSON ha "conferma_riga_1: true", mappa a "chk_riga_1: <XML...>"
-        if (transformedData.hasOwnProperty('conferma_riga_1')) {
-            transformedData.chk_riga_1 = transformedData.conferma_riga_1 
-               ? CHECKBOX_CHECKED_XML 
-                : CHECKBOX_UNCHECKED_XML;
-            // Opzionale: rimuovi il booleano originale
-            // delete transformedData.conferma_riga_1;
-        }
-        //... (Aggiungere altre logiche di trasformazione se necessario)
-        // --- Fine Trasformazione ---
-
-        // Carica il template.docx dal buffer [14, 15]
-        const zip = new PizZip(templateBuffer);
-
-        const doc = new Docxtemplater(zip, {
-            paragraphLoop: true,
-            linebreaks: true,
-            // Importante: specificare il tag per l'XML grezzo
-            parser: (tag) => {
-                if (tag.startsWith('@')) {
-                    return { type: "raw", value: tag.slice(1) };
-                }
-                return { type: "placeholder", value: tag };
-            }
-        });
-
-        // Esegui il rendering del documento con i dati trasformati [16]
-        doc.render(transformedData);
-
-        // Genera il file.docx renderizzato come buffer [1, 16]
-        const outputBuffer = doc.getZip().generate({
-            type: "nodebuffer",
-            compression: "DEFLATE",
-        });
-
-        // Invia il file.docx generato come risposta
-        res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        res.set('Content-Disposition', 'attachment; filename="generated.docx"');
-        res.send(outputBuffer); // [17]
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).send(`Errore durante la generazione del documento: ${error.message}`);
+      inputData = JSON.parse(req.body.data);
+    } catch (e) {
+      return res.status(400).send("Campo 'data' non è un JSON valido.");
     }
+
+    // 2) Trasformazioni dati (opzionali ma sicure)
+    // NB: niente raw XML: usa caratteri per checkbox se servono
+    const transformedData = { ...inputData };
+    // Esempio: booleano -> simbolo checkbox
+    for (const k of Object.keys(transformedData)) {
+      if (typeof transformedData[k] === "boolean") {
+        transformedData[`${k}_checkbox`] = transformedData[k] ? "☒" : "☐";
+      }
+    }
+
+    // 3) Carica template DOCX
+    const zip = new PizZip(templateBuffer);
+
+    // 4) Istanzia Docxtemplater senza parser custom
+    const doc = new Docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      // Se un tag non esiste nel JSON, renderizzalo come stringa vuota
+      nullGetter: () => "",
+    });
+
+    // 5) Render
+    doc.render(transformedData);
+
+    // 6) Genera buffer DOCX
+    const outputBuffer = doc.getZip().generate({
+      type: "nodebuffer",
+      compression: "DEFLATE",
+    });
+
+    // 7) Header “anti-proxy-munge” e invio file
+    res.set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.set("Content-Disposition", 'attachment; filename="generated.docx"');
+    res.set("Content-Length", String(outputBuffer.length));
+    // Evita trasformazioni (es. gzip) da parte di proxy/CDN
+    res.set("Cache-Control", "no-transform");
+    res.set("X-Content-Type-Options", "nosniff");
+
+    return res.status(200).send(outputBuffer);
+  } catch (error) {
+    // Log esteso utile quando Docxtemplater lancia MultiError
+    console.error("Docxtemplater error:", error);
+    if (error.properties && error.properties.errors) {
+      console.error("Detailed:", JSON.stringify(error.properties.errors, null, 2));
+    }
+    return res
+      .status(500)
+      .send(`Errore durante la generazione del documento: ${error.message || "Unknown error"}`);
+  }
 });
 
+// 404 esplicito (evita HTML rumorosi)
+app.use((_req, res) => res.status(404).send("Not found"));
+
 app.listen(PORT, () => {
-    console.log(`Servizio API Docxtemplater in ascolto sulla porta ${PORT}`);
+  console.log(`Docxtemplater API in ascolto sulla porta ${PORT}`);
 });
