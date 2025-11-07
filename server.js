@@ -64,9 +64,10 @@ app.post(["/generate/docx", "/generate/docx/"], async (req, res) => {
     const doc = new Docxtemplater(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      // Se un tag non esiste nel JSON, renderizzalo come stringa vuota
       nullGetter: () => "",
+      delimiters: { start: "[[", end: "]]" }
     });
+
 
     // 5) Render
     doc.render(transformedData);
